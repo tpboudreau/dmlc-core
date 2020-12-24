@@ -246,6 +246,84 @@ TEST(CSVParser, test_weight_column_2) {
   }
 }
 
+TEST(CSVParser, test_feature_column_subset_missing) {
+  using namespace parser_test;
+  InputSplit *source = nullptr;
+  const std::map<std::string, std::string> args {{"feature_columns", "1,3,5,7"}};
+  std::unique_ptr<CSVParserTest<unsigned>> parser(new CSVParserTest<unsigned>(source, args, 1));
+  std::unique_ptr<RowBlockContainer<unsigned>> rctr { new RowBlockContainer<unsigned>() };
+  std::string data =
+    "1000,,2.0,3.0,4.0,5.0,6.0,7.0,8.0\n"
+    "1001,11.0,12.0,,14.0,15.0,16.0,17.0,18.0\n"
+    "1002,101.0,102.0,103.0,104.0,,106.0,107.0,108.0\n"
+    "1003,1001.0,1002.0,1003.0,1004.0,1005.0,1006.0,,1008.0\n";
+  char *out_data = const_cast<char *>(data.c_str());
+  parser->CallParseBlock(out_data, out_data + data.size(), rctr.get());
+
+  CHECK_EQ(rctr->label.size(), 4U);
+  CHECK_EQ(rctr->offset[rctr->label.size()], 12);
+  const std::vector<std::vector<real_t> > expected_value {
+    {std::nan(""), 3.0f, 5.0f, 7.0f},
+    {11.0f, std::nan(""), 15.0f, 17.0f},
+    {101.0f, 103.0f, std::nan(""), 107.0f},
+    {1001.0f, 1003.0f, 1005.0f, std::nan("")}};
+  size_t i = 0;
+  for (size_t r = 0; r < rctr->label.size(); ++r) {
+    for (size_t x = rctr->offset[r]; x < rctr->offset[r + 1]; ++x) {
+      const size_t c = rctr->index[i];
+      const real_t actual_value = rctr->value[i];
+      CHECK_EQ(expected_value[r][c], actual_value);
+      ++i;
+    }
+  }
+}
+
+TEST(CSVParser, test_feature_column_subset_reorder) {
+  using namespace parser_test;
+  InputSplit *source = nullptr;
+  const std::map<std::string, std::string> args {
+    {"label_column", "1"},
+    {"weight_column", "2"},
+    {"feature_columns", "5,4,3"}};
+  std::unique_ptr<CSVParserTest<unsigned>> parser(new CSVParserTest<unsigned>(source, args, 1));
+  std::unique_ptr<RowBlockContainer<unsigned>> rctr { new RowBlockContainer<unsigned>() };
+  std::string data =
+    "1,1.1,1.0,3.3,4.4,5.5\n"
+    "2,2.1,1.0,3.03,4.04,5.05\n"
+    "3,3.1,1.0,3.003,4.004,5.005\n"
+    "4,4.1,1.0,3.0003,4.0004,5.0005\n";
+  char *out_data = const_cast<char *>(data.c_str());
+  parser->CallParseBlock(out_data, out_data + data.size(), rctr.get());
+
+  const std::vector<real_t> expected_label {1.1f, 2.1f, 3.1f, 4.1f};
+  CHECK_EQ(rctr->label.size(), 4U);
+  for (size_t i = 0; i < rctr->label.size(); i++) {
+    CHECK_EQ(expected_label[i], rctr->label[i]);
+  }
+
+  const std::vector<real_t> expected_weight {1.0f, 1.0f, 1.0f, 1.0f};
+  CHECK_EQ(rctr->weight.size(), 4U);
+  for (size_t i = 0; i < rctr->weight.size(); i++) {
+    CHECK_EQ(expected_weight[i], rctr->weight[i]);
+  }
+
+  const std::vector<std::vector<real_t> > expected_value {
+    {5.5f, 4.4f, 3.3f},
+    {5.05f, 4.04f, 3.03f},
+    {5.005f, 4.004f, 3.003f},
+    {5.0005f, 4.0004f, 3.0003f}};
+  CHECK(0 == rctr->value.size() % rctr->label.size());
+  size_t i = 0;
+  for (size_t r = 0; r < rctr->label.size(); ++r) {
+    for (size_t x = rctr->offset[r]; x < rctr->offset[r + 1]; ++x) {
+      const size_t c = rctr->index[i];
+      const real_t actual_value = rctr->value[i];
+      CHECK_EQ(expected_value[r][c], actual_value);
+      ++i;
+    }
+  }
+}
+
 void test_qid(std::string data) {
   using namespace parser_test;
   InputSplit *source = nullptr;

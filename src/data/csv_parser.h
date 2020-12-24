@@ -26,6 +26,7 @@ struct CSVParserParam : public Parameter<CSVParserParam> {
   int label_column;
   std::string delimiter;
   int weight_column;
+  std::string feature_columns;
   // declare parameters
   DMLC_DECLARE_PARAMETER(CSVParserParam) {
     DMLC_DECLARE_FIELD(format).set_default("csv")
@@ -36,6 +37,55 @@ struct CSVParserParam : public Parameter<CSVParserParam> {
       .describe("Delimiter used in the csv file.");
     DMLC_DECLARE_FIELD(weight_column).set_default(-1)
         .describe("Column index that will put into instance weights.");
+    DMLC_DECLARE_FIELD(feature_columns).set_default("")
+      .describe("Subset of feature column indices that should be retained.");
+  }
+
+  static const char kFeatureColumnListDelimiter = ',';
+  std::map<int, int> feature_column_indices;
+  void ExtractFeatureColumnIndices() {
+    if (feature_columns.length() > 0) {
+      std::string element;
+      std::stringstream list(feature_columns);
+      int output_index = 0;
+      while (std::getline(list, element, kFeatureColumnListDelimiter)) {
+        if (!element.empty()) {
+          const char front = element.front();
+          if (isdigit(front) || front == '-' || front == '+') {
+            std::string::size_type next = 0;
+            int input_index = std::stoi(element, &next);
+            if (next == element.size()) {
+              if (input_index >= 0) {
+                const auto inserted = feature_column_indices.insert({input_index, output_index});
+                if (inserted.second) { // insert succeeded
+                  output_index++;
+                } else {
+                  LOG(WARNING) << "Ignoring duplicate feature_column index "
+                               << input_index;
+                }
+              } else {
+                LOG(WARNING) << "Ignoring negative feature_column index "
+                             << input_index;
+              }
+            } else {
+              LOG(WARNING) << "Ignoring feature_column list entry '"
+                           << element << "' "
+                           << "containing unexpected character '"
+                           << element.at(next) << "'";
+            }
+          } else {
+            LOG(WARNING) << "Ignoring non-numeric feature_column list entry '"
+                         << element << "'";
+          }
+        } else {
+          LOG(WARNING) << "Ignoring missing feature_column list entry";
+        }
+      }
+      // label and sample weight columns can not also be features
+      feature_column_indices.erase(label_column);
+      feature_column_indices.erase(weight_column);
+    }
+    return;
   }
 };
 
@@ -56,6 +106,7 @@ class CSVParser : public TextParserBase<IndexType, DType> {
                      int nthread)
       : TextParserBase<IndexType, DType>(source, nthread) {
     param_.Init(args);
+    param_.ExtractFeatureColumnIndices();
     CHECK_EQ(param_.format, "csv");
     CHECK(param_.label_column != param_.weight_column
           || param_.label_column < 0)
@@ -116,11 +167,21 @@ ParseBlock(const char *begin,
                  && column_index == param_.weight_column) {
         weight = v;
       } else {
-        if (std::distance(p, static_cast<char const*>(endptr)) != 0) {
-          out->value.push_back(v);
-          out->index.push_back(idx++);
+        if (param_.feature_column_indices.empty()) {
+          if (std::distance(p, static_cast<char const*>(endptr)) != 0) {
+            out->value.push_back(v);
+            out->index.push_back(idx);
+          }
+          ++idx;
         } else {
-          idx++;
+          const auto found = param_.feature_column_indices.find(column_index);
+          if (found != param_.feature_column_indices.end()) {
+            if (std::distance(p, static_cast<char const*>(endptr)) != 0) {
+              out->value.push_back(v);
+              out->index.push_back(found->second);
+            }
+            ++idx;
+          }
         }
       }
       p = (endptr >= lend) ? lend : endptr;
