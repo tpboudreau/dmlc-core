@@ -26,6 +26,7 @@ struct CSVParserParam : public Parameter<CSVParserParam> {
   int label_column;
   std::string delimiter;
   int weight_column;
+  int subsample_group_column;
   // declare parameters
   DMLC_DECLARE_PARAMETER(CSVParserParam) {
     DMLC_DECLARE_FIELD(format).set_default("csv")
@@ -36,6 +37,8 @@ struct CSVParserParam : public Parameter<CSVParserParam> {
       .describe("Delimiter used in the csv file.");
     DMLC_DECLARE_FIELD(weight_column).set_default(-1)
         .describe("Column index that will put into instance weights.");
+    DMLC_DECLARE_FIELD(subsample_group_column).set_default(-1)
+        .describe("Column index of the group number (for subsampling) for the instance.");
   }
 };
 
@@ -92,22 +95,25 @@ ParseBlock(const char *begin,
     IndexType idx = 0;
     DType label = DType(0.0f);
     real_t weight = std::numeric_limits<real_t>::quiet_NaN();
+    int64_t subsample_group = -1;
 
     while (p != lend) {
       char *endptr;
       DType v;
-      // if DType is float32
-      if (std::is_same<DType, real_t>::value) {
-        v = strtof(p, &endptr);
-      // If DType is int32
-      } else if (std::is_same<DType, int32_t>::value) {
-        v = static_cast<int32_t>(strtoll(p, &endptr, 0));
-      // If DType is int64
-      } else if (std::is_same<DType, int64_t>::value) {
-        v = static_cast<int64_t>(strtoll(p, &endptr, 0));
-      // If DType is all other types
-      } else {
-        LOG(FATAL) << "Only float32, int32, and int64 are supported for the time being";
+      if (column_index != param_.subsample_group_column) {
+        // if DType is float32
+        if (std::is_same<DType, real_t>::value) {
+          v = strtof(p, &endptr);
+        // If DType is int32
+        } else if (std::is_same<DType, int32_t>::value) {
+          v = static_cast<int32_t>(strtoll(p, &endptr, 0));
+        // If DType is int64
+        } else if (std::is_same<DType, int64_t>::value) {
+          v = static_cast<int64_t>(strtoll(p, &endptr, 0));
+        // If DType is all other types
+        } else {
+          LOG(FATAL) << "Only float32, int32, and int64 are supported for the time being";
+        }
       }
 
       if (column_index == param_.label_column) {
@@ -115,6 +121,8 @@ ParseBlock(const char *begin,
       } else if (std::is_same<DType, real_t>::value
                  && column_index == param_.weight_column) {
         weight = v;
+      } else if (column_index == param_.subsample_group_column) {
+        subsample_group = static_cast<int64_t>(strtoll(p, &endptr, 0));
       } else {
         if (std::distance(p, static_cast<char const*>(endptr)) != 0) {
           out->value.push_back(v);
@@ -140,10 +148,14 @@ ParseBlock(const char *begin,
     if (!std::isnan(weight)) {
       out->weight.push_back(weight);
     }
+    if (subsample_group >= 0 && subsample_group <= std::numeric_limits<uint32_t>::max()) {
+      out->subsample_group.push_back(static_cast<uint32_t>(subsample_group));
+    }
     out->offset.push_back(out->index.size());
   }
   CHECK(out->label.size() + 1 == out->offset.size());
   CHECK(out->weight.size() == 0 || out->weight.size() + 1 == out->offset.size());
+  CHECK(out->subsample_group.size() == 0 || out->subsample_group.size() + 1 == out->offset.size());
 }
 }  // namespace data
 }  // namespace dmlc

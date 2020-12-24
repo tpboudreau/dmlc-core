@@ -77,6 +77,8 @@ class Row {
   const DType *label;
   /*! \brief weight of the instance */
   const real_t *weight;
+  /*! \brief group number of the instance (for grouped subsampling)*/
+  const uint32_t *subsample_group;
   /*! \brief session-id of the instance */
   const uint64_t *qid;
   /*! \brief length of the sparse vector */
@@ -130,6 +132,13 @@ class Row {
     return weight == NULL ? 1.0f : *weight;
   }
   /*!
+   * \return the subsample group of the instance, this function is always
+   *  safe even when subsample_group == NULL
+   */
+  inline uint32_t get_subsample_group() const {
+    return subsample_group == NULL ? 0U : *subsample_group;
+  }
+  /*!
    * \return the qid of the instance, this function is always
    *  safe even when qid == NULL
    */
@@ -179,8 +188,10 @@ struct RowBlock {
   const size_t *offset;
   /*! \brief array[size] label of each instance */
   const DType *label;
-  /*! \brief With weight: array[size] label of each instance, otherwise nullptr */
+  /*! \brief With weight: array[size] weight of each instance, otherwise nullptr */
   const real_t *weight;
+  /*! \brief With subsample_group: array[size] subsample group of each instance, otherwise nullptr */
+  const uint32_t *subsample_group;
   /*! \brief With qid: array[size] session id of each instance, otherwise nullptr */
   const uint64_t *qid;
   /*! \brief field id*/
@@ -199,7 +210,8 @@ struct RowBlock {
   inline size_t MemCostBytes(void) const {
     size_t cost = size * (sizeof(size_t) + sizeof(DType));
     if (weight != NULL) cost += size * sizeof(real_t);
-    if (qid != NULL) cost += size * sizeof(size_t);
+    if (subsample_group != NULL) cost += size * sizeof(uint32_t);
+    if (qid != NULL) cost += size * sizeof(uint64_t);
     size_t ndata = offset[size] - offset[0];
     if (field != NULL) cost += ndata * sizeof(IndexType);
     if (index != NULL) cost += ndata * sizeof(IndexType);
@@ -221,6 +233,11 @@ struct RowBlock {
       ret.weight = weight + begin;
     } else {
       ret.weight = NULL;
+    }
+    if (subsample_group != NULL) {
+      ret.subsample_group = subsample_group + begin;
+    } else {
+      ret.subsample_group = NULL;
     }
     if (qid != NULL) {
       ret.qid = qid + begin;
@@ -372,6 +389,11 @@ RowBlock<IndexType, DType>::operator[](size_t rowid) const {
     inst.weight = weight + rowid;
   } else {
     inst.weight = NULL;
+  }
+  if (subsample_group != NULL) {
+    inst.subsample_group = subsample_group + rowid;
+  } else {
+    inst.subsample_group = NULL;
   }
   if (qid != NULL) {
     inst.qid = qid + rowid;

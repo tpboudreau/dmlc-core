@@ -31,6 +31,8 @@ struct RowBlockContainer {
   std::vector<DType> label;
   /*! \brief array[size] weight of each instance */
   std::vector<real_t> weight;
+  /*! \brief array[size] subsample group number of each instance */
+  std::vector<uint32_t> subsample_group;
   /*! \brief array[size] session-id of each instance */
   std::vector<uint64_t> qid;
   /*! \brief field index */
@@ -63,7 +65,13 @@ struct RowBlockContainer {
   /*! \brief clear the container */
   inline void Clear(void) {
     offset.clear(); offset.push_back(0);
-    label.clear(); field.clear(); index.clear(); value.clear(); weight.clear(); qid.clear();
+    label.clear();
+    field.clear();
+    index.clear();
+    value.clear();
+    weight.clear();
+    subsample_group.clear();
+    qid.clear();
     max_field = 0;
     max_index = 0;
   }
@@ -76,7 +84,8 @@ struct RowBlockContainer {
     return offset.size() * sizeof(size_t) +
         label.size() * sizeof(real_t) +
         weight.size() * sizeof(real_t) +
-        qid.size() * sizeof(size_t) +
+        subsample_group.size() * sizeof(uint32_t) +
+        qid.size() * sizeof(uint64_t) +
         field.size() * sizeof(IndexType) +
         index.size() * sizeof(IndexType) +
         value.size() * sizeof(DType);
@@ -90,6 +99,7 @@ struct RowBlockContainer {
   inline void Push(Row<I, DType> row) {
     label.push_back(row.get_label());
     weight.push_back(row.get_weight());
+    subsample_group.push_back(row.get_subsample_group());
     qid.push_back(row.get_qid());
     if (row.field != NULL) {
       for (size_t i = 0; i < row.length; ++i) {
@@ -127,6 +137,11 @@ struct RowBlockContainer {
                 batch.size * sizeof(DType));
     if (batch.weight != NULL) {
       weight.insert(weight.end(), batch.weight, batch.weight + batch.size);
+    }
+    if (batch.subsample_group != NULL) {
+      subsample_group.insert(subsample_group.end(),
+                             batch.subsample_group,
+                             batch.subsample_group + batch.size);
     }
     if (batch.qid != NULL) {
       qid.insert(qid.end(), batch.qid, batch.qid + batch.size);
@@ -180,6 +195,7 @@ RowBlockContainer<IndexType, DType>::GetBlock(void) const {
   data.offset = BeginPtr(offset);
   data.label = BeginPtr(label);
   data.weight = BeginPtr(weight);
+  data.subsample_group = BeginPtr(subsample_group);
   data.qid = BeginPtr(qid);
   data.field = BeginPtr(field);
   data.index = BeginPtr(index);
@@ -192,6 +208,7 @@ RowBlockContainer<IndexType, DType>::Save(Stream *fo) const {
   fo->Write(offset);
   fo->Write(label);
   fo->Write(weight);
+  fo->Write(subsample_group);
   fo->Write(qid);
   fo->Write(field);
   fo->Write(index);
@@ -205,6 +222,7 @@ RowBlockContainer<IndexType, DType>::Load(Stream *fi) {
   if (!fi->Read(&offset)) return false;
   CHECK(fi->Read(&label)) << "Bad RowBlock format";
   CHECK(fi->Read(&weight)) << "Bad RowBlock format";
+  CHECK(fi->Read(&subsample_group)) << "Bad RowBlock format";
   CHECK(fi->Read(&qid)) << "Bad RowBlock format";
   CHECK(fi->Read(&field)) << "Bad RowBlock format";
   CHECK(fi->Read(&index)) << "Bad RowBlock format";
