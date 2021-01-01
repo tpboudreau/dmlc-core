@@ -68,12 +68,14 @@ class DataIter {
 /*!
  * \brief one row of training instance
  * \tparam IndexType type of index
- * \tparam DType type of data (both label and value will be of DType
+ * \tparam DType type of data (both label and value will be of DType)
  */
 template<typename IndexType, typename DType = real_t>
 class Row {
  public:
-  /*! \brief label of the instance */
+  /*! \brief number of labels for the instance */
+  size_t label_count;
+  /*! \brief label(s) of the instance */
   const DType *label;
   /*! \brief weight of the instance */
   const real_t *weight;
@@ -117,10 +119,22 @@ class Row {
     return value == NULL ? DType(1.0f) : value[i];
   }
   /*!
-   * \return the label of the instance
+   * \return the number of labels for the instance
+   */
+  inline size_t get_label_count() const {
+    return label_count;
+  }
+  /*!
+   * \return the first (or only) label of the instance
    */
   inline DType get_label() const {
     return *label;
+  }
+  /*!
+   * \return all labels of the instance
+   */
+  inline std::vector<DType> get_all_labels() const {
+    return std::vector<DType>(label, label + label_count);
   }
   /*!
    * \return the weight of the instance, this function is always
@@ -177,7 +191,9 @@ struct RowBlock {
   size_t size;
   /*! \brief array[size+1], row pointer to beginning of each rows */
   const size_t *offset;
-  /*! \brief array[size] label of each instance */
+  /*! \brief number of labels for each instance */
+  size_t label_count;
+  /*! \brief array[size * label_count] label of each instance */
   const DType *label;
   /*! \brief With weight: array[size] label of each instance, otherwise nullptr */
   const real_t *weight;
@@ -197,7 +213,8 @@ struct RowBlock {
   inline Row<IndexType, DType> operator[](size_t rowid) const;
   /*! \return memory cost of the block in bytes */
   inline size_t MemCostBytes(void) const {
-    size_t cost = size * (sizeof(size_t) + sizeof(DType));
+    size_t cost = size * sizeof(size_t);
+    cost += (size * label_count) * sizeof(DType);
     if (weight != NULL) cost += size * sizeof(real_t);
     if (qid != NULL) cost += size * sizeof(size_t);
     size_t ndata = offset[size] - offset[0];
@@ -216,7 +233,7 @@ struct RowBlock {
     CHECK(begin <= end && end <= size);
     RowBlock ret;
     ret.size = end - begin;
-    ret.label = label + begin;
+    ret.label = label + (begin * label_count);
     if (weight != NULL) {
       ret.weight = weight + begin;
     } else {
@@ -367,7 +384,7 @@ inline Row<IndexType, DType>
 RowBlock<IndexType, DType>::operator[](size_t rowid) const {
   CHECK(rowid < size);
   Row<IndexType, DType> inst;
-  inst.label = label + rowid;
+  inst.label = label + (rowid * label_count);
   if (weight != NULL) {
     inst.weight = weight + rowid;
   } else {
